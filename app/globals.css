@@ -1,0 +1,181 @@
+:root {
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+  --panel: #111827;
+  --muted: #94a3b8;
+  --red: #ef4444;
+  --blue: #3b82f6;
+}
+
+html {
+  height: 100%;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100%;
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.home,
+.roomsPage {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.home {
+  min-height: 100vh;
+  display: grid;
+  gap: 1rem;
+  place-content: center;
+}
+
+.primaryAction,
+button {
+  background: #334155;
+  color: #f8fafc;
+  border: 1px solid #475569;
+  padding: 0.65rem 1rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+button.red {
+  border-color: var(--red);
+}
+
+button.blue {
+  border-color: var(--blue);
+}
+
+button.active.red {
+  background: var(--red);
+}
+
+button.active.blue {
+  background: var(--blue);
+}
+
+.panel {
+  display: grid;
+  gap: 0.75rem;
+  background: var(--panel);
+  border: 1px solid #334155;
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+input {
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid #475569;
+  background: #0b1220;
+  color: var(--foreground);
+}
+
+.roomList {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.roomCard {
+  border: 1px solid #334155;
+  border-radius: 0.65rem;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.25rem;
+  background: #111827;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.errorText {
+  color: #fda4af;
+}
+
+.teamPicker {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gameLayout {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.hud,
+.roster {
+  display: flex;
+  justify-content: space-between;
+  background: var(--panel);
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.field {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 920 / 440;
+  border: 2px solid #334155;
+  border-radius: 0.75rem;
+  background: radial-gradient(circle at center, #0b1220 0%, #050b16 100%);
+}
+
+.centerLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  background: #334155;
+}
+
+.ball {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #f8fafc;
+}
+
+.paddle {
+  position: absolute;
+  border-radius: 0.4rem;
+}
+
+.paddle.red {
+  background: var(--red);
+}
+
+.paddle.blue {
+  background: var(--blue);
+}

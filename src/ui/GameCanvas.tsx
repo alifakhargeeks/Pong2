@@ -20,11 +20,22 @@ export function GameCanvas({ room }: Props) {
   const [players, setPlayers] = useState<PlayerPresence[]>([]);
   const [match, setMatch] = useState<MatchState>(() => createInitialMatchState(room.durationSec, FIELD));
   const connectionRef = useRef<RoomConnection | null>(null);
+  const playersRef = useRef<PlayerPresence[]>([]);
+  const matchRef = useRef<MatchState>(createInitialMatchState(room.durationSec, FIELD));
+  const lastPresenceUpdateRef = useRef(0);
 
   const isHost = useMemo(() => {
     if (!players.length || !myId) return false;
     return [...players].sort((a, b) => a.id.localeCompare(b.id))[0]?.id === myId;
   }, [myId, players]);
+
+  useEffect(() => {
+    playersRef.current = players;
+  }, [players]);
+
+  useEffect(() => {
+    matchRef.current = match;
+  }, [match]);
 
   useEffect(() => {
     if (!joined) return;
@@ -46,20 +57,38 @@ export function GameCanvas({ room }: Props) {
 
   useEffect(() => {
     if (!joined || !isHost) return;
-    let matchState: MatchState = { ...match, phase: "live" };
+    let matchState: MatchState = { ...matchRef.current, phase: "live" };
+    let lastTick = performance.now();
+    let lastBroadcast = 0;
+
     const ticker = setInterval(() => {
-      matchState = tickMatch(matchState, players, FIELD, 1 / 30);
+      const now = performance.now();
+      const dtSec = Math.min(0.05, (now - lastTick) / 1000);
+      lastTick = now;
+      matchState = tickMatch(matchState, playersRef.current, FIELD, dtSec);
+      matchRef.current = matchState;
       setMatch(matchState);
-      connectionRef.current?.broadcastMatchState(matchState);
-    }, 1000 / 30);
+
+      if (now - lastBroadcast > 50) {
+        connectionRef.current?.broadcastMatchState(matchState);
+        lastBroadcast = now;
+      }
+    }, 1000 / 60);
+
     return () => clearInterval(ticker);
-  }, [isHost, joined, match, players]);
+  }, [isHost, joined]);
 
   const onMove = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.currentTarget.getBoundingClientRect();
     const y = ((event.clientY - target.top) / target.height) * FIELD.height;
-    setPlayers((current) => {
+    const now = performance.now();
+
+    if (now - lastPresenceUpdateRef.current > 16) {
       connectionRef.current?.updatePresence({ paddleY: y });
+      lastPresenceUpdateRef.current = now;
+    }
+
+    setPlayers((current) => {
       return current.map((player) =>
         player.id === myId
           ? {
@@ -108,7 +137,7 @@ export function GameCanvas({ room }: Props) {
         <span>
           {Math.max(0, Math.ceil(match.durationSec - match.elapsedSec))}s left | {match.score.red} - {match.score.blue}
         </span>
-        <span>Speed x{match.ball.speed / 280}</span>
+        <span>{players.length} players</span>
       </header>
       <div className="field" onMouseMove={onMove}>
         <div className="centerLine" />

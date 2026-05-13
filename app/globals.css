@@ -39,9 +39,9 @@ a {
 
 .home,
 .roomsPage {
-  width: min(1100px, 100%);
+  width: 100%;
   margin: 0 auto;
-  padding: 2rem 1rem;
+  padding: 0.75rem;
 }
 
 .home {
@@ -130,6 +130,8 @@ input {
 .gameLayout {
   display: grid;
   gap: 0.75rem;
+  min-height: calc(100vh - 1.5rem);
+  grid-template-rows: auto 1fr auto;
 }
 
 .hud,
@@ -145,7 +147,8 @@ input {
 .field {
   position: relative;
   width: 100%;
-  aspect-ratio: 920 / 440;
+  height: 100%;
+  min-height: 70vh;
   border: 2px solid #334155;
   border-radius: 0.75rem;
   background: radial-gradient(circle at center, #0b1220 0%, #050b16 100%);

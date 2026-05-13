@@ -241,18 +241,23 @@ export function GameCanvas({ room }: Props) {
             height: match.ball.radius * 2,
           }}
         />
-        {match.paddles.map((paddle) => (
-          <div
-            key={paddle.playerId}
-            className={`paddle ${paddle.team}`}
-            style={{
-              left: `${(paddle.x / FIELD.width) * 100}%`,
-              top: `${(paddle.y / FIELD.height) * 100}%`,
-              width: `${(paddle.width / FIELD.width) * 100}%`,
-              height: `${(paddle.height / FIELD.height) * 100}%`,
-            }}
-          />
-        ))}
+        {match.paddles.map((paddle) => {
+          const isMe = paddle.playerId === myId;
+          return (
+            <div
+              key={paddle.playerId}
+              className={`paddle ${paddle.team}`}
+              style={{
+                left: `${(paddle.x / FIELD.width) * 100}%`,
+                top: `${(paddle.y / FIELD.height) * 100}%`,
+                width: `${(paddle.width / FIELD.width) * 100}%`,
+                height: `${(paddle.height / FIELD.height) * 100}%`,
+                opacity: isMe ? 1 : 0.35,
+                boxShadow: isMe ? "0 0 8px 2px currentColor" : "none",
+              }}
+            />
+          );
+        })}
       </div>
       <footer className="roster">
         <div>Red: {players.filter((p) => p.team === "red").length}</div>

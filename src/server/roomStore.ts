@@ -33,3 +33,7 @@ export function updateRoomStatus(roomId: string, status: MatchPhase): RoomSummar
   memoryStore.set(roomId, next);
   return next;
 }
+
+export function deleteRoom(roomId: string): boolean {
+  return memoryStore.delete(roomId);
+}

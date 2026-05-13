@@ -1,4 +1,4 @@
-import { getRoom } from "@/src/server/roomStore";
+import { deleteRoom, getRoom } from "@/src/server/roomStore";
 
 export async function GET(_request: Request, context: RouteContext<"/api/rooms/[roomId]">) {
   const { roomId } = await context.params;
@@ -7,4 +7,10 @@ export async function GET(_request: Request, context: RouteContext<"/api/rooms/[
     return Response.json({ error: "Room not found." }, { status: 404 });
   }
   return Response.json({ room });
+}
+
+export async function DELETE(_request: Request, context: RouteContext<"/api/rooms/[roomId]">) {
+  const { roomId } = await context.params;
+  deleteRoom(roomId);
+  return new Response(null, { status: 204 });
 }

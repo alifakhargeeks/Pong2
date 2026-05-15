@@ -215,6 +215,44 @@ input {
   font-size: 0.9rem;
 }
 
+.lobbyTeam.mine {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+  border-radius: 0.4rem;
+}
+
+.lobbyTeam.mine.red {
+  color: var(--red);
+}
+
+.lobbyTeam.mine.blue {
+  color: var(--blue);
+}
+
+.switchTeam {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.6rem;
+  color: #fff;
+}
+
+.switchTeam.red {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.switchTeam.blue {
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.switchTeam:disabled {
+  background: #1f2937;
+  border-color: #1f2937;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
 .startButton {
   margin-top: 0.5rem;
   padding: 0.8rem 1.5rem;

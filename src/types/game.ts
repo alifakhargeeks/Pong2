@@ -49,6 +49,11 @@ export interface MatchState {
   winner: Team | "draw" | null;
 }
 
+// Slim wire shape broadcast by the host. Excludes `paddles` — clients derive
+// those locally from presence, so the payload stays constant regardless of
+// player count.
+export type MatchSnapshot = Omit<MatchState, "paddles">;
+
 export interface RoomSummary {
   id: string;
   roomName: string;

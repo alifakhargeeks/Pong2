@@ -1,17 +1,17 @@
 "use client";
 
 import { getRealtimeClient } from "@/src/realtime/client";
-import type { MatchState, PlayerPresence, RoomSettings, Team } from "@/src/types/game";
+import type { MatchSnapshot, PlayerPresence, RoomSettings, Team } from "@/src/types/game";
 
 export interface RoomConnection {
   roomId: string;
   playerId: string;
   updatePresence: (patch: Partial<PlayerPresence>) => void;
-  broadcastMatchState: (match: MatchState) => void;
+  broadcastMatchState: (snapshot: MatchSnapshot) => void;
   leave: () => void;
 }
 
-type StateHandler = (state: MatchState) => void;
+type StateHandler = (state: MatchSnapshot) => void;
 type PresenceHandler = (players: PlayerPresence[]) => void;
 
 function buildInitialPresence(playerId: string, playerName: string, team: Team): PlayerPresence {
@@ -52,7 +52,7 @@ export function connectRoom(
   const unsubOthers = room.subscribe("others", syncPlayers);
   const unsubPresence = room.subscribe("my-presence", syncPlayers);
   const unsubEvents = room.subscribe("event", (message) => {
-    const event = message.event as { type?: string; payload?: MatchState } | undefined;
+    const event = message.event as { type?: string; payload?: MatchSnapshot } | undefined;
     if (event?.type === "match_state" && event.payload) onState(event.payload);
   });
 
@@ -62,7 +62,8 @@ export function connectRoom(
     roomId,
     playerId,
     updatePresence: (patch) => room.updatePresence(patch),
-    broadcastMatchState: (match) => room.broadcastEvent({ type: "match_state", payload: match } as never),
+    broadcastMatchState: (snapshot) =>
+      room.broadcastEvent({ type: "match_state", payload: snapshot } as never),
     leave: () => {
       unsubOthers();
       unsubPresence();

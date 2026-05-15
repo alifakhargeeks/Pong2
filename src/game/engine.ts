@@ -1,6 +1,6 @@
 import { bounceFromPaddle, bounceFromWalls, checkGoal, clampPaddleY, moveBall, type FieldSize } from "@/src/game/physics";
 import { getBallSpeedMultiplier, getPaddleHeight } from "@/src/game/scaling";
-import type { MatchState, PaddleState, PlayerPresence, Team } from "@/src/types/game";
+import type { MatchSnapshot, MatchState, PaddleState, PlayerPresence, Team } from "@/src/types/game";
 
 const BASE_BALL_SPEED = 280;
 const PADDLE_WIDTH = 12;
@@ -55,6 +55,13 @@ export function createInitialMatchState(durationSec: number, field: FieldSize): 
     },
     winner: null,
   };
+}
+
+// Strips the player-count-scaling `paddles` array for the wire. Clients
+// rebuild paddles locally from presence via buildPaddles().
+export function toSnapshot(state: MatchState): MatchSnapshot {
+  const { paddles: _paddles, ...snapshot } = state;
+  return snapshot;
 }
 
 export function tickMatch(state: MatchState, players: PlayerPresence[], field: FieldSize, dtSec: number): MatchState {

@@ -64,3 +64,17 @@ export interface RoomSummary {
   blueCount: number;
   createdAt: string;
 }
+
+// Client → Worker WebSocket messages
+export type ClientMessage =
+  | { type: "join"; playerId: string; name: string; team: Team }
+  | { type: "paddle"; y: number }
+  | { type: "switch_team"; team: Team }
+  | { type: "start" }
+  | { type: "finish" };
+
+// Worker → Client WebSocket messages
+export type ServerMessage =
+  | { type: "snapshot"; payload: MatchSnapshot; players: PlayerPresence[] }
+  | { type: "joined"; playerId: string; team: Team; maxPerTeam: number }
+  | { type: "error"; message: string };

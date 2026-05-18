@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "worker:dev": "cd worker && npx wrangler dev --port 8787",
+    "worker:deploy:staging": "npx wrangler deploy --env staging",
+    "worker:deploy:production": "npx wrangler deploy --env production",
+    "loadtest": "npx tsx scripts/loadtest.ts"
   },
   "dependencies": {
     "@liveblocks/client": "^3.19.0",
@@ -19,8 +24,11 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ws": "^8",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
-    "typescript": "^5"
+    "tsx": "^4",
+    "typescript": "^5",
+    "ws": "^8"
   }
 }

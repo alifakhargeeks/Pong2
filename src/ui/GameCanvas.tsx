@@ -1,16 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
-import { buildPaddles, createInitialMatchState, tickMatch, toSnapshot } from "@/src/game/engine";
+import { buildPaddles } from "@/src/game/engine";
 import { clampPaddleY } from "@/src/game/physics";
-import { connectRoom, type RoomConnection } from "@/src/realtime/roomState";
-import type { MatchSnapshot, MatchState, PlayerPresence, RoomSummary, Team } from "@/src/types/game";
+import type { ClientMessage, MatchSnapshot, PlayerPresence, RoomSummary, ServerMessage, Team } from "@/src/types/game";
 
 const FIELD = { width: 920, height: 440 };
 // Cap on how far the ball is extrapolated past the last snapshot, so a
 // goal/reset between snapshots can't fling it across the field.
 const MAX_EXTRAPOLATION_SEC = 0.15;
+
+const INITIAL_SNAPSHOT: MatchSnapshot = {
+  phase: "lobby",
+  elapsedSec: 0,
+  durationSec: 300,
+  score: { red: 0, blue: 0 },
+  ball: { x: FIELD.width / 2, y: FIELD.height / 2, vx: 280, vy: 70, radius: 8, speed: 280 },
+  winner: null,
+};
 
 interface Props {
   room: RoomSummary;
@@ -20,29 +28,26 @@ export function GameCanvas({ room }: Props) {
   const [playerName, setPlayerName] = useState("");
   const [team, setTeam] = useState<Team>("red");
   const [joined, setJoined] = useState(false);
-  const [myId, setMyId] = useState("");
+  // myId is stable for the lifetime of this component instance
+  const [myId] = useState(() => nanoid(8));
   const [players, setPlayers] = useState<PlayerPresence[]>([]);
-  const [match, setMatch] = useState<MatchSnapshot>(() => createInitialMatchState(room.durationSec, FIELD));
-  const [gameStarted, setGameStarted] = useState(false);
+  const [match, setMatch] = useState<MatchSnapshot>(() => ({
+    ...INITIAL_SNAPSHOT,
+    durationSec: room.durationSec,
+  }));
 
-  const connectionRef = useRef<RoomConnection | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const playersRef = useRef<PlayerPresence[]>([]);
   const rosterSigRef = useRef("");
-  const matchRef = useRef<MatchState>(createInitialMatchState(room.durationSec, FIELD));
   const snapshotRef = useRef<{ snap: MatchSnapshot; receivedAt: number } | null>(null);
   const myPaddleYRef = useRef(180);
-  const lastPresenceUpdateRef = useRef(0);
+  const lastPaddleSendRef = useRef(0);
   const hudRef = useRef({ red: -1, blue: -1, remaining: -1, phase: "" });
   const joinInfoRef = useRef<{ name: string; team: Team }>({ name: "Player", team: "red" });
 
   // DOM refs for imperative, re-render-free motion during live play.
   const ballElRef = useRef<HTMLDivElement | null>(null);
   const paddleElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
-
-  const isHost = useMemo(() => {
-    if (!players.length || !myId) return false;
-    return [...players].sort((a, b) => a.id.localeCompare(b.id))[0]?.id === myId;
-  }, [myId, players]);
 
   // Pushes a re-render only when a HUD-visible value (score, timer second,
   // phase) actually changes — keeps motion off the React render path.
@@ -56,18 +61,43 @@ export function GameCanvas({ room }: Props) {
     setMatch({ ...s });
   }, []);
 
+  // WebSocket connection to the authoritative game Worker.
   useEffect(() => {
     if (!joined) return;
-    const connection = connectRoom(
-      room.id,
-      myId,
-      joinInfoRef.current.name,
-      joinInfoRef.current.team,
-      (nextPlayers) => {
+
+    const wsUrl = process.env.NEXT_PUBLIC_GAME_WS_URL;
+    if (!wsUrl) {
+      console.error("NEXT_PUBLIC_GAME_WS_URL is not set");
+      return;
+    }
+
+    const url = `${wsUrl}/${room.id}?duration=${room.durationSec}&max=${room.maxPlayersPerTeam}`;
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      const msg: ClientMessage = {
+        type: "join",
+        playerId: myId,
+        name: joinInfoRef.current.name,
+        team: joinInfoRef.current.team,
+      };
+      ws.send(JSON.stringify(msg));
+    };
+
+    ws.onmessage = (event) => {
+      let msg: ServerMessage;
+      try {
+        msg = JSON.parse(event.data as string) as ServerMessage;
+      } catch {
+        return;
+      }
+
+      if (msg.type === "snapshot") {
+        snapshotRef.current = { snap: msg.payload, receivedAt: performance.now() };
+        const nextPlayers = msg.players;
         playersRef.current = nextPlayers;
-        // Re-render only when the roster identity changes (join/leave/team
-        // switch/rename) — not when a paddle moves. Paddle motion is drawn
-        // imperatively by the rAF loop.
+        // Re-render only when roster identity changes — not on every paddle move.
         const sig = nextPlayers
           .map((p) => `${p.id}:${p.team}:${p.name}`)
           .sort()
@@ -76,57 +106,25 @@ export function GameCanvas({ room }: Props) {
           rosterSigRef.current = sig;
           setPlayers(nextPlayers);
         }
-      },
-      (snap) => {
-        snapshotRef.current = { snap, receivedAt: performance.now() };
-        // Keep matchRef roughly current so a promoted host (failover) has
-        // recent state to continue physics from.
-        matchRef.current = { ...snap, paddles: matchRef.current.paddles };
-        if (snap.phase === "live") setGameStarted(true);
-        maybeSyncHud(snap);
-      },
-    );
-    connectionRef.current = connection;
+        maybeSyncHud(msg.payload);
+      } else if (msg.type === "error") {
+        console.error("Server:", msg.message);
+      }
+    };
+
+    ws.onclose = () => {
+      wsRef.current = null;
+    };
 
     return () => {
-      connection.leave();
-      connectionRef.current = null;
+      ws.close();
+      wsRef.current = null;
     };
-  }, [joined, myId, room.id, maybeSyncHud]);
-
-  // Host physics loop — authoritative 60 fps, broadcasts a slim snapshot at
-  // ~20 fps. Writes only to refs; no per-tick React re-render.
-  useEffect(() => {
-    if (!joined || !isHost || !gameStarted) return;
-
-    let lastTick = performance.now();
-    let lastBroadcast = 0;
-
-    const ticker = setInterval(() => {
-      const now = performance.now();
-      const dtSec = Math.min(0.05, (now - lastTick) / 1000);
-      lastTick = now;
-
-      // Use my own live paddle position rather than my throttled presence.
-      const livePlayers = playersRef.current.map((p) =>
-        p.id === myId ? { ...p, paddleY: myPaddleYRef.current } : p,
-      );
-      const nextState = tickMatch(matchRef.current, livePlayers, FIELD, dtSec);
-      matchRef.current = nextState;
-
-      if (now - lastBroadcast > 50) {
-        connectionRef.current?.broadcastMatchState(toSnapshot(nextState));
-        lastBroadcast = now;
-      }
-      maybeSyncHud(nextState);
-    }, 1000 / 60);
-
-    return () => clearInterval(ticker);
-  }, [isHost, joined, gameStarted, myId, maybeSyncHud]);
+  }, [joined, myId, room.id, room.durationSec, room.maxPlayersPerTeam, maybeSyncHud]);
 
   // rAF render loop — draws ball + paddles imperatively at display rate.
-  // Non-hosts extrapolate the ball from the last snapshot for smooth motion
-  // despite the ~20 fps network update rate.
+  // Extrapolates the ball from the last server snapshot for smooth 60fps motion
+  // despite the ~25 Hz network update rate.
   useEffect(() => {
     if (!joined || match.phase !== "live") return;
 
@@ -134,18 +132,13 @@ export function GameCanvas({ room }: Props) {
     const render = () => {
       raf = requestAnimationFrame(render);
 
-      let ballX: number;
-      let ballY: number;
-      if (isHost) {
-        ballX = matchRef.current.ball.x;
-        ballY = matchRef.current.ball.y;
-      } else {
-        const s = snapshotRef.current;
-        if (!s) return;
-        const dt = Math.min(MAX_EXTRAPOLATION_SEC, (performance.now() - s.receivedAt) / 1000);
-        ballX = s.snap.ball.x + s.snap.ball.vx * dt;
-        ballY = s.snap.ball.y + s.snap.ball.vy * dt;
-      }
+      const s = snapshotRef.current;
+      if (!s) return;
+
+      const dt = Math.min(MAX_EXTRAPOLATION_SEC, (performance.now() - s.receivedAt) / 1000);
+      const ballX = s.snap.ball.x + s.snap.ball.vx * dt;
+      const ballY = s.snap.ball.y + s.snap.ball.vy * dt;
+
       if (ballElRef.current) {
         ballElRef.current.style.left = `${(ballX / FIELD.width) * 100}%`;
         ballElRef.current.style.top = `${(ballY / FIELD.height) * 100}%`;
@@ -167,28 +160,17 @@ export function GameCanvas({ room }: Props) {
     };
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
-  }, [joined, match.phase, isHost, myId]);
+  }, [joined, match.phase, myId]);
 
-  const startGame = () => {
-    const liveState: MatchState = { ...matchRef.current, phase: "live" };
-    matchRef.current = liveState;
-    connectionRef.current?.broadcastMatchState(toSnapshot(liveState));
-    setGameStarted(true);
-    maybeSyncHud(liveState);
+  const sendWs = (msg: ClientMessage) => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   };
 
+  const startGame = () => sendWs({ type: "start" });
+
   const finishGame = () => {
-    const current = matchRef.current;
-    const winner =
-      current.score.red === current.score.blue
-        ? "draw"
-        : current.score.red > current.score.blue
-          ? "red"
-          : "blue";
-    const finishedState: MatchState = { ...current, phase: "finished", winner };
-    matchRef.current = finishedState;
-    connectionRef.current?.broadcastMatchState(toSnapshot(finishedState));
-    maybeSyncHud(finishedState);
+    sendWs({ type: "finish" });
     void fetch(`/api/rooms/${room.id}`, { method: "DELETE" });
   };
 
@@ -197,7 +179,7 @@ export function GameCanvas({ room }: Props) {
     const teamCount = players.filter((p) => p.team === next).length;
     if (teamCount >= room.maxPlayersPerTeam) return;
     setTeam(next);
-    connectionRef.current?.updatePresence({ team: next });
+    sendWs({ type: "switch_team", team: next });
   };
 
   const onMove = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -206,9 +188,9 @@ export function GameCanvas({ room }: Props) {
     myPaddleYRef.current = y;
 
     const now = performance.now();
-    if (now - lastPresenceUpdateRef.current > 50) {
-      connectionRef.current?.updatePresence({ paddleY: y });
-      lastPresenceUpdateRef.current = now;
+    if (now - lastPaddleSendRef.current > 50) {
+      sendWs({ type: "paddle", y });
+      lastPaddleSendRef.current = now;
     }
   };
 
@@ -234,7 +216,6 @@ export function GameCanvas({ room }: Props) {
           disabled={!playerName.trim()}
           onClick={() => {
             joinInfoRef.current = { name: playerName.trim() || "Player", team };
-            setMyId(nanoid(8));
             setJoined(true);
           }}
         >
@@ -286,13 +267,9 @@ export function GameCanvas({ room }: Props) {
           {renderTeam("Red", "red", redPlayers)}
           {renderTeam("Blue", "blue", bluePlayers)}
         </div>
-        {isHost ? (
-          <button type="button" className="startButton" onClick={startGame}>
-            Start Game
-          </button>
-        ) : (
-          <p className="muted">Waiting for the host to start the game…</p>
-        )}
+        <button type="button" className="startButton" onClick={startGame}>
+          Start Game
+        </button>
       </section>
     );
   }
@@ -327,11 +304,9 @@ export function GameCanvas({ room }: Props) {
         </span>
         <div className="hudRight">
           <span>{players.length} players</span>
-          {isHost && (
-            <button type="button" className="finishButton" onClick={finishGame}>
-              Finish Game
-            </button>
-          )}
+          <button type="button" className="finishButton" onClick={finishGame}>
+            Finish Game
+          </button>
         </div>
       </header>
       <div className="field" onMouseMove={onMove}>

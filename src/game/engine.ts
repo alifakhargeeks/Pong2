@@ -9,8 +9,9 @@ const LEFT_X = 18;
 export function buildPaddles(field: FieldSize, players: PlayerPresence[]): PaddleState[] {
   const redPlayers = players.filter((p) => p.team === "red");
   const bluePlayers = players.filter((p) => p.team === "blue");
-  const redHeight = getPaddleHeight(redPlayers.length || 1);
-  const blueHeight = getPaddleHeight(bluePlayers.length || 1);
+  const maxTeamHeight = field.height * 0.7;
+  const redHeight = Math.min(getPaddleHeight(redPlayers.length || 1), Math.floor(maxTeamHeight / (redPlayers.length || 1)));
+  const blueHeight = Math.min(getPaddleHeight(bluePlayers.length || 1), Math.floor(maxTeamHeight / (bluePlayers.length || 1)));
 
   return players.map((player) => {
     const height = player.team === "red" ? redHeight : blueHeight;
@@ -89,7 +90,7 @@ export function tickMatch(state: MatchState, players: PlayerPresence[], field: F
   const nextScore = { ...state.score };
   if (goalFor) {
     nextScore[goalFor] += 1;
-    ball = resetBall(field, goalFor === "red" ? "blue" : "red", speed);
+    ball = resetBall(field, goalFor === "red" ? "blue" : "red", BASE_BALL_SPEED);
   }
 
   const hasEnded = elapsedSec >= state.durationSec;

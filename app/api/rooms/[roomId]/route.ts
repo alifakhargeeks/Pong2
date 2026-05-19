@@ -1,16 +1,20 @@
-import { deleteRoom, getRoom } from "@/src/server/roomStore";
+const WORKER_BASE = process.env.GAME_HTTP_URL;
 
 export async function GET(_request: Request, context: RouteContext<"/api/rooms/[roomId]">) {
   const { roomId } = await context.params;
-  const room = getRoom(roomId);
-  if (!room) {
-    return Response.json({ error: "Room not found." }, { status: 404 });
+  if (!WORKER_BASE) {
+    return Response.json({ error: "GAME_HTTP_URL not configured." }, { status: 503 });
   }
-  return Response.json({ room });
+  const res = await fetch(`${WORKER_BASE}/rooms/${roomId}`);
+  const data = await res.json();
+  return Response.json(data, { status: res.status });
 }
 
 export async function DELETE(_request: Request, context: RouteContext<"/api/rooms/[roomId]">) {
   const { roomId } = await context.params;
-  deleteRoom(roomId);
+  if (!WORKER_BASE) {
+    return Response.json({ error: "GAME_HTTP_URL not configured." }, { status: 503 });
+  }
+  await fetch(`${WORKER_BASE}/rooms/${roomId}`, { method: "DELETE" });
   return new Response(null, { status: 204 });
 }

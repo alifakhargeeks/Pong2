@@ -64,8 +64,8 @@ export class RoomRunner implements DurableObject {
   }
 
   webSocketClose(ws: WebSocket): void {
-    const meta = this.state.getTags(ws);
-    const playerId = meta[0];
+    const attachment = ws.deserializeAttachment() as { playerId?: string } | null;
+    const playerId = attachment?.playerId;
     if (playerId) {
       this.players.delete(playerId);
       this.broadcastSnapshot();

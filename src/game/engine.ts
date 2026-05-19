@@ -2,7 +2,7 @@ import { bounceFromPaddle, bounceFromWalls, checkGoal, clampPaddleY, moveBall, t
 import { getBallSpeedMultiplier, getPaddleHeight } from "@/src/game/scaling";
 import type { MatchSnapshot, MatchState, PaddleState, PlayerPresence, Team } from "@/src/types/game";
 
-const BASE_BALL_SPEED = 280;
+const BASE_BALL_SPEED = 560;
 const PADDLE_WIDTH = 12;
 const LEFT_X = 18;
 

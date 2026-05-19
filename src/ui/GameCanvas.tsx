@@ -16,7 +16,7 @@ const INITIAL_SNAPSHOT: MatchSnapshot = {
   elapsedSec: 0,
   durationSec: 300,
   score: { red: 0, blue: 0 },
-  ball: { x: FIELD.width / 2, y: FIELD.height / 2, vx: 280, vy: 70, radius: 8, speed: 280 },
+  ball: { x: FIELD.width / 2, y: FIELD.height / 2, vx: 560, vy: 140, radius: 8, speed: 560 },
   winner: null,
   speedElapsedSec: 0,
 };

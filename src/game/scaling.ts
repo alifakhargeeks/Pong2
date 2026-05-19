@@ -6,7 +6,7 @@ export function getPaddleHeight(playerCountPerTeam: number): number {
   return Math.max(MIN_PADDLE_HEIGHT, Math.round(BASE_PADDLE_HEIGHT / n));
 }
 
-const SPEED_GAIN_PER_SEC = 0.01;
+const SPEED_GAIN_PER_SEC = 0.03;
 const MAX_SPEED_MULT = 2.4;
 
 // elapsedSec should be seconds since the last goal (resets on each goal)

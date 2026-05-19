@@ -3,14 +3,20 @@
 # Online Team Pong — Project Guide
 
 Multiplayer browser Pong: many players each control their own paddle on one of two
-teams (Red / Blue) in a shared room. Next.js App Router + Liveblocks realtime.
+teams (Red / Blue) in a shared room. Next.js App Router frontend + Cloudflare Workers
+authoritative game server (Durable Objects).
 
 ## Commands
 
-- `npm run dev` — dev server at http://localhost:3000
-- `npm run build` — production build; also runs the TypeScript typecheck. Run this to verify changes.
+- `npm run dev` — Next.js dev server at http://localhost:3000
+- `npm run build` — production build + TypeScript check. Run this to verify changes.
 - `npm run lint` — ESLint (eslint-config-next)
+- `npm run typecheck` — `tsc --noEmit` (Next.js files only; excludes `worker/`)
 - `npm start` — serve the production build
+- `npm run worker:dev` — run Worker locally at ws://localhost:8787 (via Wrangler)
+- `npm run worker:deploy:staging` — deploy Worker to Cloudflare staging environment
+- `npm run worker:deploy:production` — deploy Worker to Cloudflare production environment
+- `npm run loadtest` — 20-client WebSocket load test (set `NEXT_PUBLIC_GAME_WS_URL` + `LOADTEST_DURATION_SEC`)
 
 No test suite exists. Verify with `npm run build` plus manual multi-tab testing.
 
@@ -18,58 +24,110 @@ No test suite exists. Verify with `npm run build` plus manual multi-tab testing.
 
 - Next.js 16.2.6 (App Router, Turbopack), React 19.2.4
 - TypeScript strict mode — avoid `any`
-- `@liveblocks/client` 3.x for realtime; `nanoid` for IDs
-- Plain global CSS in `app/globals.css` (class-based). No Tailwind, no CSS modules.
+- Cloudflare Workers + Durable Objects for authoritative game server (`worker/`)
+- `nanoid` for IDs; plain global CSS in `app/globals.css`. No Tailwind, no CSS modules.
+- `@liveblocks/client` is still installed but NO LONGER USED — do not add new Liveblocks code.
 
-## Architecture — host-authoritative realtime
+## Architecture — server-authoritative realtime
 
-Understand this before touching game code.
+**The Cloudflare Worker is the single authority for all game state. The browser has no physics.**
 
-- **One host per room.** The player whose `id` sorts first alphabetically is the host
-  (`isHost` in `src/ui/GameCanvas.tsx`). Only the host runs physics.
-- **Host loop:** a 60 fps `setInterval` calls `tickMatch()` (`src/game/engine.ts`), then
-  broadcasts a slim `MatchSnapshot` (ball/score/phase/timer — no paddle array) via a
-  Liveblocks event, throttled to ~50 ms.
-- **Non-hosts are pure renderers.** They receive `match_state` events and render, with a
-  `requestAnimationFrame` loop extrapolating the ball between snapshots for smoothness.
-  They never compute physics and never broadcast match state.
-- **Paddle positions** sync separately via Liveblocks **presence** (`updatePresence`),
-  throttled to 50 ms per player. Every client derives paddle geometry locally via
-  `buildPaddles()`; the host reads everyone's presence each tick.
-- **Match phases:** `lobby` → `live` → `finished`. The host drives transitions
-  (Start Game / Finish Game). `countdown` exists in the type but is unused.
-- Designed for 20+ concurrent players per room — the 50 ms throttles are deliberate.
-  Don't lower them without weighing realtime load.
+### Cloudflare Worker (`worker/`)
+
+- **`worker/src/index.ts`** — main Worker entry. Routes requests:
+  - `GET /rooms`, `POST /rooms`, `GET /rooms/:id`, `DELETE /rooms/:id` → `RoomsRegistry` DO
+  - `GET /:roomId` (with `Upgrade: websocket`) → `RoomRunner` DO
+- **`worker/src/registry.ts`** — `RoomsRegistry` Durable Object. Single global instance
+  (keyed `"global"`). Stores all room metadata in SQLite-backed DO storage. Persists across
+  Vercel cold-starts; visible to every user globally.
+- **`worker/src/room.ts`** — `RoomRunner` Durable Object. One instance per room (keyed by
+  roomId). Owns all game state: match phase, score, ball, paddles, players, timer.
+  - Ticks at 25 Hz via `setInterval`
+  - Clients join via WebSocket, send `join` / `paddle` / `switch_team` / `start` / `finish`
+  - Server broadcasts compact `snapshot` messages to all connected clients at every tick
+  - Team cap enforced server-side; disconnected players cleaned up via `deserializeAttachment`
+- **`wrangler.toml`** (repo root) — Worker config. Has explicit `durable_objects.bindings`
+  under BOTH `[env.staging]` and `[env.production]` (required; DO bindings are NOT inherited).
+
+### Next.js Frontend
+
+- **`app/api/rooms/route.ts`** and **`app/api/rooms/[roomId]/route.ts`** — thin proxies to
+  `${GAME_HTTP_URL}/rooms[/:id]`. Do NOT use `roomStore.ts` — it is dead code.
+- **`src/ui/GameCanvas.tsx`** — connects to Worker via WebSocket on join. Sends paddle moves
+  at 20 Hz (throttled 50 ms). Renders server snapshots with rAF ball extrapolation.
+  No host election, no local physics tick, no Liveblocks.
+
+### Message Protocol (`src/types/game.ts`)
+
+```
+Client → Worker:  join | paddle | switch_team | start | finish
+Worker → Client:  snapshot | joined | error
+```
+
+### Data Flow
+
+1. Frontend calls `POST /api/rooms` → Next.js proxies to Worker `RoomsRegistry` DO → room stored in DO SQLite
+2. Users visit `/rooms/[roomId]` → frontend calls `GET /api/rooms/:id` → proxy to Worker → room data returned
+3. `GameCanvas` opens WebSocket to `wss://<worker>/<roomId>?duration=...&max=...`
+4. Worker routes WS to the `RoomRunner` DO for that roomId
+5. Player sends `join` → DO adds to player map → broadcasts snapshot
+6. 25 Hz tick: DO calls `tickMatch()` → broadcasts updated snapshot to all connected clients
+7. Clients extrapolate ball position between snapshots using rAF loop
 
 ## Layering — keep these boundaries
 
-- `src/game/` — pure game logic. No React, no I/O, no Liveblocks. `engine.ts`,
-  `physics.ts`, `scaling.ts`. Keep it pure and deterministic.
-- `src/realtime/` — Liveblocks only. `client.ts` (singleton), `roomState.ts` (`connectRoom`).
-- `src/server/` — server-only modules. `roomStore.ts`.
-- `src/types/game.ts` — shared types; single source of truth for game shapes.
+- `src/game/` — pure game logic. No React, no I/O, no network. `engine.ts`, `physics.ts`,
+  `scaling.ts`. Imported by BOTH the Worker and the frontend (via `@/*` path alias).
+- `src/realtime/` — legacy Liveblocks code. Unused; do not import in new code.
+- `src/server/roomStore.ts` — legacy in-memory store. Unused; do not import in new code.
+- `src/types/game.ts` — shared types for frontend AND Worker. Single source of truth.
 - `src/ui/` — React components.
-- `app/` — App Router routes and `app/api/` REST endpoints.
+- `app/` — App Router routes and `app/api/` REST proxy endpoints.
+- `worker/` — Cloudflare Worker source. Has its own `package.json` and `tsconfig.json`.
+  Excluded from root `tsc` — checked by Wrangler's own build.
 
-Do not put game/physics logic inside components. Do not import Liveblocks into `src/game/`.
+Do not put game/physics logic inside components. Do not import Liveblocks into new code.
+
+## Environment Variables
+
+| Variable | Where set | Used by |
+|----------|-----------|---------|
+| `NEXT_PUBLIC_GAME_WS_URL` | Vercel (public) + `.env.local` | Browser — WebSocket URL |
+| `GAME_HTTP_URL` | Vercel (server) + `.env.local` | Next.js API proxy → Worker |
+
+Local `.env.local`:
+```
+NEXT_PUBLIC_GAME_WS_URL=ws://localhost:8787
+GAME_HTTP_URL=http://localhost:8787
+```
+
+Production Vercel values:
+```
+NEXT_PUBLIC_GAME_WS_URL=wss://pong-room-runner-production.ali-fakhar.workers.dev
+GAME_HTTP_URL=https://pong-room-runner-production.ali-fakhar.workers.dev
+```
 
 ## Conventions & gotchas
 
-- **Path alias:** `@/*` maps to the repo root — import as `@/src/game/engine`.
+- **Path alias:** `@/*` maps to the repo root — import as `@/src/game/engine`. Works in
+  both Next.js and Worker (Worker `tsconfig.json` maps it too).
 - **Route handlers:** Next 16 typed context — `context: RouteContext<"/api/rooms/[roomId]">`,
   and `params` is a Promise: `const { roomId } = await context.params;`.
 - **Client components** need `"use client"`. The game UI is entirely client-side.
-- **Game loop closures:** inside `setInterval`, read from refs (`matchRef`, `playersRef`),
-  never from React state — state is stale in the closure.
-- **`PlayerPresence`** has an index signature (`[key: string]: ...`) required by Liveblocks
-  presence typing — keep it.
-- **`getRealtimeClient()`** throws if `NEXT_PUBLIC_LIVEBLOCKS_PUBLIC_KEY` is unset. Copy
-  `.env.example` to `.env.local`.
-- **Room storage is in-memory** (`src/server/roomStore.ts`) — does NOT persist across
-  server restarts and is NOT shared across serverless instances on Vercel. Known
-  limitation; production needs a real store.
+- **Worker DO bindings must be repeated per environment** in `wrangler.toml` — they are NOT
+  inherited from the top level. Always add `[[env.staging.durable_objects.bindings]]` AND
+  `[[env.production.durable_objects.bindings]]` when adding a new DO.
+- **Worker migrations:** adding a new Durable Object class requires a new `[[migrations]]`
+  tag (e.g. `tag = "v3"`). Never reuse an existing tag.
+- **`worker/node_modules/` is gitignored** — run `npm install` inside `worker/` after cloning.
+- **Ball speed resets to `BASE_BALL_SPEED` after each goal** (not the ramped speed).
+- **Team paddle coverage is capped at 70% of field height** via `buildPaddles()` in `engine.ts`.
+- **`PlayerPresence`** has an index signature (`[key: string]: ...`) — keep it.
 
 ## Deployment
 
-GitHub: https://github.com/alifakhargeeks/Pong2 — pushes go to `main`. Deployed on Vercel;
-set `NEXT_PUBLIC_LIVEBLOCKS_PUBLIC_KEY` in Vercel env vars.
+GitHub: https://github.com/alifakhargeeks/Pong2 — pushes go to `main`.
+- Frontend: auto-deployed on Vercel from `main`
+- Worker: manually deployed via `npm run worker:deploy:production` (or staging)
+- Live URL: https://pong2-woad.vercel.app/rooms
+- Worker URL: https://pong-room-runner-production.ali-fakhar.workers.dev

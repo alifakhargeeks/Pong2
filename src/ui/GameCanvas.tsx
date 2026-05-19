@@ -18,6 +18,7 @@ const INITIAL_SNAPSHOT: MatchSnapshot = {
   score: { red: 0, blue: 0 },
   ball: { x: FIELD.width / 2, y: FIELD.height / 2, vx: 280, vy: 70, radius: 8, speed: 280 },
   winner: null,
+  speedElapsedSec: 0,
 };
 
 interface Props {

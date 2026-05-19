@@ -55,6 +55,7 @@ export function createInitialMatchState(durationSec: number, field: FieldSize): 
       speed: BASE_BALL_SPEED,
     },
     winner: null,
+    speedElapsedSec: 0,
   };
 }
 
@@ -67,8 +68,7 @@ export function toSnapshot(state: MatchState): MatchSnapshot {
 
 export function tickMatch(state: MatchState, players: PlayerPresence[], field: FieldSize, dtSec: number): MatchState {
   if (state.phase !== "live") return { ...state, paddles: buildPaddles(field, players) };
-  const totalPlayers = Math.max(2, players.length);
-  const speedMultiplier = getBallSpeedMultiplier(state.elapsedSec, state.durationSec, totalPlayers);
+  const speedMultiplier = getBallSpeedMultiplier(state.speedElapsedSec);
   const speed = BASE_BALL_SPEED * speedMultiplier;
 
   let ball = {
@@ -88,9 +88,11 @@ export function tickMatch(state: MatchState, players: PlayerPresence[], field: F
   const goalFor = checkGoal(ball, field);
   const elapsedSec = Math.min(state.durationSec, state.elapsedSec + dtSec);
   const nextScore = { ...state.score };
+  let nextSpeedElapsedSec = state.speedElapsedSec + dtSec;
   if (goalFor) {
     nextScore[goalFor] += 1;
     ball = resetBall(field, goalFor === "red" ? "blue" : "red", BASE_BALL_SPEED);
+    nextSpeedElapsedSec = 0;
   }
 
   const hasEnded = elapsedSec >= state.durationSec;
@@ -105,6 +107,7 @@ export function tickMatch(state: MatchState, players: PlayerPresence[], field: F
   return {
     ...state,
     elapsedSec,
+    speedElapsedSec: nextSpeedElapsedSec,
     score: nextScore,
     ball,
     paddles,

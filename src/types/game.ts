@@ -47,6 +47,7 @@ export interface MatchState {
   paddles: PaddleState[];
   ball: BallState;
   winner: Team | "draw" | null;
+  speedElapsedSec: number; // seconds since last goal; drives ball speed ramp
 }
 
 // Slim wire shape broadcast by the host. Excludes `paddles` — clients derive
